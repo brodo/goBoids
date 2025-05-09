@@ -39,9 +39,9 @@ func init() {
 
 const (
 	// number of boid particles to simulate
-	NumParticles = 256
+	NumParticles = 4096
 	// number of single-particle calculations (invocations) in each gpu work group
-	ParticlesPerGroup = 256
+	ParticlesPerGroup = 512
 )
 
 //go:embed compute.wgsl
@@ -132,12 +132,12 @@ func InitState(window *glfw.Window) (s *State, err error) {
 
 	simParamData := []float32{
 		0.016, // deltaTime
-		0.5,   // maxForce
+		0.4,   // maxForce
 		1.0,   // maxSpeed
-		1.0,   // alignmentWeight
-		0.8,   // cohesionWeight
-		1.5,   // separationWeight
-		50.0,  // perceptionRadius
+		0.8,   // alignmentWeight
+		0.7,   // cohesionWeight
+		0.8,   // separationWeight
+		0.3,   // perceptionRadius
 	}
 
 	simParamBuffer, err := s.device.CreateBufferInit(&wgpu.BufferInitDescriptor{
@@ -220,7 +220,7 @@ func InitState(window *glfw.Window) (s *State, err error) {
 		return s, err
 	}
 	// this defines the small triangle for each boid
-	vertexBufferData := [...]float32{-0.01, -0.02, 0.01, -0.02, 0.00, 0.02}
+	vertexBufferData := [...]float32{-0.001, -0.002, 0.001, -0.002, 0.00, 0.002}
 	s.vertexBuffer, err = s.device.CreateBufferInit(&wgpu.BufferInitDescriptor{
 		Label:    "Vertex Buffer",
 		Contents: wgpu.ToBytes(vertexBufferData[:]),

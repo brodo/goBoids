@@ -41,7 +41,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     var total_align = 0;
     var total_cohesion = 0;
     var total_separation = 0;
-
     for (var i = 0u; i < arrayLength(&boids); i++) {
         if (i == index) {
             continue;
@@ -88,6 +87,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     current.velocity = limit_vector(current.velocity + current.acceleration, params.maxSpeed);
     current.position = current.position + current.velocity * params.deltaTime;
     current.acceleration = vec2<f32>(0.0);
+    current.position.x = current.position.x - 2.0 * floor((current.position.x + 1.0) / 2.0);
+    current.position.y = current.position.y - 2.0 * floor((current.position.y + 1.0) / 2.0);
+
 
     boids[index] = current;
 }
