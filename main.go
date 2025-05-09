@@ -132,17 +132,12 @@ func InitState(window *glfw.Window) (s *State, err error) {
 
 	simParamData := []float32{
 		0.016, // deltaTime
-		0.2,   // maxForce
+		0.5,   // maxForce
 		1.0,   // maxSpeed
-		800.0, // width
-		600.0, // height
 		1.0,   // alignmentWeight
 		0.8,   // cohesionWeight
 		1.5,   // separationWeight
 		50.0,  // perceptionRadius
-		2.0,   // borderWeight
-		100.0, //borderMargin
-
 	}
 
 	simParamBuffer, err := s.device.CreateBufferInit(&wgpu.BufferInitDescriptor{

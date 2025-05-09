@@ -8,14 +8,10 @@ struct SimParams {
     deltaTime: f32,
     maxForce: f32,
     maxSpeed: f32,
-    width: f32,
-    height: f32,
     alignmentWeight: f32,
     cohesionWeight: f32,
     separationWeight: f32,
     perceptionRadius: f32,
-    borderWeight: f32,
-    borderMargin: f32
 }
 
 @group(0) @binding(0) var<storage, read_write> boids: array<Boid>;
@@ -28,54 +24,6 @@ fn limit_vector(v: vec2<f32>, max_length: f32) -> vec2<f32> {
     }
     return v;
 }
-
-fn avoid_borders(position: vec2<f32>) -> vec2<f32> {
-    var desired = position;  // Start with current position (no change)
-    let margin = params.borderMargin;
-    var steer = vec2<f32>(0.0, 0.0);
-    var needsToTurn = false;
-
-    // Check if too close to any border and create a desired velocity away from it
-    // Left border
-    if (position.x < margin) {
-        desired.x = params.maxSpeed;
-        needsToTurn = true;
-    }
-    // Right border
-    else if (position.x > params.width - margin) {
-        desired.x = -params.maxSpeed;
-        needsToTurn = true;
-    }
-    else {
-        desired.x = 0.0;  // No horizontal steering needed
-    }
-
-    // Top border
-    if (position.y < margin) {
-        desired.y = params.maxSpeed;
-        needsToTurn = true;
-    }
-    // Bottom border
-    else if (position.y > params.height - margin) {
-        desired.y = -params.maxSpeed;
-        needsToTurn = true;
-    }
-    else {
-        desired.y = 0.0;  // No vertical steering needed
-    }
-
-    // Only apply steering if the boid is near a border
-    if (needsToTurn) {
-        // If we have a desired direction, calculate steering force
-        if (length(desired) > 0.0) {
-            desired = normalize(desired) * params.maxSpeed;
-            steer = desired;
-        }
-    }
-
-    return steer;
-}
-
 
 
 
@@ -132,15 +80,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         separation = limit_vector(normalize(separation) * params.maxSpeed - current.velocity, params.maxForce);
     }
 
-    let border_force = limit_vector(avoid_borders(current.position) - current.velocity, params.maxForce);
-
-
     // Update boid
     current.acceleration = alignment * params.alignmentWeight + 
                          cohesion * params.cohesionWeight + 
-                         separation * params.separationWeight +
-                         border_force * params.borderWeight
-;
+                         separation * params.separationWeight;
 
     current.velocity = limit_vector(current.velocity + current.acceleration, params.maxSpeed);
     current.position = current.position + current.velocity * params.deltaTime;
