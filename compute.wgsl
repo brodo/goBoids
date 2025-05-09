@@ -1,0 +1,150 @@
+struct Boid {
+    position: vec2<f32>,
+    velocity: vec2<f32>,
+    acceleration: vec2<f32>
+}
+
+struct SimParams {
+    deltaTime: f32,
+    maxForce: f32,
+    maxSpeed: f32,
+    width: f32,
+    height: f32,
+    alignmentWeight: f32,
+    cohesionWeight: f32,
+    separationWeight: f32,
+    perceptionRadius: f32,
+    borderWeight: f32,
+    borderMargin: f32
+}
+
+@group(0) @binding(0) var<storage, read_write> boids: array<Boid>;
+@group(0) @binding(1) var<uniform> params: SimParams;
+
+fn limit_vector(v: vec2<f32>, max_length: f32) -> vec2<f32> {
+    let length_sq = dot(v, v);
+    if (length_sq > max_length * max_length) {
+        return normalize(v) * max_length;
+    }
+    return v;
+}
+
+fn avoid_borders(position: vec2<f32>) -> vec2<f32> {
+    var desired = position;  // Start with current position (no change)
+    let margin = params.borderMargin;
+    var steer = vec2<f32>(0.0, 0.0);
+    var needsToTurn = false;
+
+    // Check if too close to any border and create a desired velocity away from it
+    // Left border
+    if (position.x < margin) {
+        desired.x = params.maxSpeed;
+        needsToTurn = true;
+    }
+    // Right border
+    else if (position.x > params.width - margin) {
+        desired.x = -params.maxSpeed;
+        needsToTurn = true;
+    }
+    else {
+        desired.x = 0.0;  // No horizontal steering needed
+    }
+
+    // Top border
+    if (position.y < margin) {
+        desired.y = params.maxSpeed;
+        needsToTurn = true;
+    }
+    // Bottom border
+    else if (position.y > params.height - margin) {
+        desired.y = -params.maxSpeed;
+        needsToTurn = true;
+    }
+    else {
+        desired.y = 0.0;  // No vertical steering needed
+    }
+
+    // Only apply steering if the boid is near a border
+    if (needsToTurn) {
+        // If we have a desired direction, calculate steering force
+        if (length(desired) > 0.0) {
+            desired = normalize(desired) * params.maxSpeed;
+            steer = desired;
+        }
+    }
+
+    return steer;
+}
+
+
+
+
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let index = global_id.x;
+    if (index >= arrayLength(&boids)) {
+        return;
+    }
+
+    var current = boids[index];
+    var alignment = vec2<f32>(0.0);
+    var cohesion = vec2<f32>(0.0);
+    var separation = vec2<f32>(0.0);
+    var total_align = 0;
+    var total_cohesion = 0;
+    var total_separation = 0;
+
+    for (var i = 0u; i < arrayLength(&boids); i++) {
+        if (i == index) {
+            continue;
+        }
+
+        let other = boids[i];
+        let d = distance(current.position, other.position);
+
+        if (d < params.perceptionRadius) {
+            // Alignment
+            alignment += other.velocity;
+            total_align++;
+
+            // Cohesion
+            cohesion += other.position;
+            total_cohesion++;
+
+            // Separation
+            if (d < params.perceptionRadius * 0.5) {
+                let diff = current.position - other.position;
+                separation += normalize(diff) / d;
+                total_separation++;
+            }
+        }
+    }
+
+    // Apply flocking behaviors
+    if (total_align > 0) {
+        alignment = limit_vector(normalize(alignment) * params.maxSpeed - current.velocity, params.maxForce);
+    }
+    if (total_cohesion > 0) {
+        let center = cohesion / f32(total_cohesion);
+        cohesion = limit_vector(normalize(center - current.position) * params.maxSpeed - current.velocity, params.maxForce);
+    }
+    if (total_separation > 0) {
+        separation = limit_vector(normalize(separation) * params.maxSpeed - current.velocity, params.maxForce);
+    }
+
+    let border_force = limit_vector(avoid_borders(current.position) - current.velocity, params.maxForce);
+
+
+    // Update boid
+    current.acceleration = alignment * params.alignmentWeight + 
+                         cohesion * params.cohesionWeight + 
+                         separation * params.separationWeight +
+                         border_force * params.borderWeight
+;
+
+    current.velocity = limit_vector(current.velocity + current.acceleration, params.maxSpeed);
+    current.position = current.position + current.velocity * params.deltaTime;
+    current.acceleration = vec2<f32>(0.0);
+
+    boids[index] = current;
+}
