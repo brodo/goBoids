@@ -79,13 +79,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         separation = limit_vector(normalize(separation) * params.maxSpeed - current.velocity, params.maxForce);
     }
 
-    if (total_align == 0 && total_cohesion == 0 && total_separation == 0) {
-        // Add some wandering behavior based on the boid's index
-        let t = f32(index) * 0.01 + params.deltaTime;
-        current.acceleration = vec2<f32>(sin(t * 2.0), cos(t * 3.0)) * params.maxForce * 0.5;
-    }
-
-
     // Update boid
     current.acceleration = alignment * params.alignmentWeight + 
                          cohesion * params.cohesionWeight + 
