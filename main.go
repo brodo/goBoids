@@ -40,7 +40,7 @@ const (
 	// number of boid particles to simulate
 	NumParticles = 1024
 	// number of single-particle calculations (invocations) in each gpu work group
-	ParticlesPerGroup = 512
+	ParticlesPerGroup = 256 // if you update this, also update it in the shader.
 )
 
 //go:embed compute.wgsl
