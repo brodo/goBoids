@@ -39,7 +39,7 @@ func init() {
 
 const (
 	// number of boid particles to simulate
-	NumParticles = 4096
+	NumParticles = 1024
 	// number of single-particle calculations (invocations) in each gpu work group
 	ParticlesPerGroup = 512
 )
@@ -156,28 +156,28 @@ func InitState(window *glfw.Window) (s *State, err error) {
 			EntryPoint: "main_vs",
 			Buffers: []wgpu.VertexBufferLayout{
 				{
-					ArrayStride: 4 * 6,
+					ArrayStride: 6 * 4, // 6 f32s
 					StepMode:    wgpu.VertexStepModeInstance,
 					Attributes: []wgpu.VertexAttribute{
 						{
 							Format:         wgpu.VertexFormatFloat32x2,
-							Offset:         0,
+							Offset:         0, // position
 							ShaderLocation: 0,
 						},
 						{
 							Format:         wgpu.VertexFormatFloat32x2,
-							Offset:         0 + wgpu.VertexFormatFloat32x2.Size(),
+							Offset:         0 + wgpu.VertexFormatFloat32x2.Size(), // velocity
 							ShaderLocation: 1,
 						},
 					},
 				},
 				{
-					ArrayStride: 4,
+					ArrayStride: 2 * 4, // 2 f32s
 					StepMode:    wgpu.VertexStepModeVertex,
 					Attributes: []wgpu.VertexAttribute{
 						{
 							Format:         wgpu.VertexFormatFloat32x2,
-							Offset:         0,
+							Offset:         0, // this is the last position
 							ShaderLocation: 2,
 						},
 					},
@@ -237,7 +237,7 @@ func InitState(window *glfw.Window) (s *State, err error) {
 		initialParticleData[i+0] = float32(rng.Int63())/math.MaxInt64*2 - 1 // position x
 		initialParticleData[i+1] = float32(rng.Int63())/math.MaxInt64*2 - 1 // position y
 
-		// Random velocity direction with consistent speed
+		// Random velocity direction with a consistent speed
 		angle := float32(rng.Int63()) / math.MaxInt64 * 2 * math.Pi
 		speed := float32(0.1)
 		initialParticleData[i+2] = speed * float32(math.Cos(float64(angle))) // velocity x
@@ -413,7 +413,7 @@ func main() {
 	defer glfw.Terminate()
 
 	glfw.WindowHint(glfw.ClientAPI, glfw.NoAPI)
-	window, err := glfw.CreateWindow(800, 600, "go-webgpu with glfw", nil, nil)
+	window, err := glfw.CreateWindow(1024, 768, "go-webgpu with glfw", nil, nil)
 	if err != nil {
 		panic(err)
 	}
