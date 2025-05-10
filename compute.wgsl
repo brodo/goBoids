@@ -1,7 +1,6 @@
 struct Boid {
     position: vec2<f32>,
     velocity: vec2<f32>,
-    acceleration: vec2<f32>
 }
 
 struct SimParams {
@@ -80,13 +79,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     // Update boid
-    current.acceleration = alignment * params.alignmentWeight + 
+    var acceleration = alignment * params.alignmentWeight +
                          cohesion * params.cohesionWeight + 
                          separation * params.separationWeight;
 
-    current.velocity = limit_vector(current.velocity + current.acceleration, params.maxSpeed);
+    current.velocity = limit_vector(current.velocity + acceleration, params.maxSpeed);
     current.position = current.position + current.velocity * params.deltaTime;
-    current.acceleration = vec2<f32>(0.0);
     current.position.x = current.position.x - 2.0 * floor((current.position.x + 1.0) / 2.0);
     current.position.y = current.position.y - 2.0 * floor((current.position.y + 1.0) / 2.0);
 

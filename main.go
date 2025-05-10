@@ -38,7 +38,7 @@ func init() {
 
 const (
 	// number of boid particles to simulate
-	NumParticles = 1024
+	NumParticles = 16384
 	// number of single-particle calculations (invocations) in each gpu work group
 	ParticlesPerGroup = 256 // if you update this, also update it in the shader.
 )
@@ -130,13 +130,13 @@ func InitState(window *glfw.Window) (s *State, err error) {
 	defer drawShader.Release()
 
 	simParamData := []float32{
-		0.016, // deltaTime
-		0.4,   // maxForce
-		1.0,   // maxSpeed
-		0.8,   // alignmentWeight
-		0.7,   // cohesionWeight
-		0.8,   // separationWeight
-		0.3,   // perceptionRadius
+		1.0 / 60.0, // deltaTime - 60 fps
+		0.4,        // maxForce
+		1.0,        // maxSpeed
+		0.8,        // alignmentWeight
+		0.7,        // cohesionWeight
+		0.8,        // separationWeight
+		0.3,        // perceptionRadius
 	}
 
 	simParamBuffer, err := s.device.CreateBufferInit(&wgpu.BufferInitDescriptor{
@@ -155,7 +155,7 @@ func InitState(window *glfw.Window) (s *State, err error) {
 			EntryPoint: "main_vs",
 			Buffers: []wgpu.VertexBufferLayout{
 				{
-					ArrayStride: 6 * 4, // 6 f32s
+					ArrayStride: 4 * 4, // 4 f32s
 					StepMode:    wgpu.VertexStepModeInstance,
 					Attributes: []wgpu.VertexAttribute{
 						{
@@ -229,10 +229,10 @@ func InitState(window *glfw.Window) (s *State, err error) {
 		return s, err
 	}
 
-	var initialParticleData [6 * NumParticles]float32
+	var initialParticleData [4 * NumParticles]float32
 	rng := rand.NewSource(42)
 
-	for i := 0; i < len(initialParticleData); i += 6 {
+	for i := 0; i < len(initialParticleData); i += 4 {
 		initialParticleData[i+0] = float32(rng.Int63())/math.MaxInt64*2 - 1 // position x
 		initialParticleData[i+1] = float32(rng.Int63())/math.MaxInt64*2 - 1 // position y
 
@@ -241,13 +241,10 @@ func InitState(window *glfw.Window) (s *State, err error) {
 		speed := float32(0.1)
 		initialParticleData[i+2] = speed * float32(math.Cos(float64(angle))) // velocity x
 		initialParticleData[i+3] = speed * float32(math.Sin(float64(angle))) // velocity y
-
-		initialParticleData[i+4] = 0 // acc x
-		initialParticleData[i+5] = 0 // acc y
 	}
 
 	particleBuffer, err := s.device.CreateBufferInit(&wgpu.BufferInitDescriptor{
-		Label:    "Particle Buffer ",
+		Label:    "Particle Buffer",
 		Contents: wgpu.ToBytes(initialParticleData[:]),
 		Usage: wgpu.BufferUsageVertex |
 			wgpu.BufferUsageStorage |
