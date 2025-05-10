@@ -6,7 +6,6 @@ import (
 	"math/rand"
 	"os"
 	"runtime"
-	"strconv"
 	"strings"
 
 	"github.com/cogentcore/webgpu/wgpu"
@@ -247,46 +246,42 @@ func InitState(window *glfw.Window) (s *State, err error) {
 		initialParticleData[i+5] = 0 // acc y
 	}
 
-	for i := 0; i < 2; i++ {
-		particleBuffer, err := s.device.CreateBufferInit(&wgpu.BufferInitDescriptor{
-			Label:    "Particle Buffer " + strconv.Itoa(i),
-			Contents: wgpu.ToBytes(initialParticleData[:]),
-			Usage: wgpu.BufferUsageVertex |
-				wgpu.BufferUsageStorage |
-				wgpu.BufferUsageCopyDst,
-		})
-		if err != nil {
-			return s, err
-		}
-
-		s.particleBuffers = append(s.particleBuffers, particleBuffer)
+	particleBuffer, err := s.device.CreateBufferInit(&wgpu.BufferInitDescriptor{
+		Label:    "Particle Buffer ",
+		Contents: wgpu.ToBytes(initialParticleData[:]),
+		Usage: wgpu.BufferUsageVertex |
+			wgpu.BufferUsageStorage |
+			wgpu.BufferUsageCopyDst,
+	})
+	if err != nil {
+		return s, err
 	}
+
+	s.particleBuffers = append(s.particleBuffers, particleBuffer)
 
 	computeBindGroupLayout := s.computePipeline.GetBindGroupLayout(0)
 	defer computeBindGroupLayout.Release()
 
-	for i := 0; i < 2; i++ {
-		particleBindGroup, err := s.device.CreateBindGroup(&wgpu.BindGroupDescriptor{
-			Layout: computeBindGroupLayout,
-			Entries: []wgpu.BindGroupEntry{
-				{
-					Binding: 0,
-					Buffer:  s.particleBuffers[i],
-					Size:    wgpu.WholeSize,
-				},
-				{
-					Binding: 1,
-					Buffer:  simParamBuffer,
-					Size:    wgpu.WholeSize,
-				},
+	particleBindGroup, err := s.device.CreateBindGroup(&wgpu.BindGroupDescriptor{
+		Layout: computeBindGroupLayout,
+		Entries: []wgpu.BindGroupEntry{
+			{
+				Binding: 0,
+				Buffer:  s.particleBuffers[0],
+				Size:    wgpu.WholeSize,
 			},
-		})
-		if err != nil {
-			return s, err
-		}
-
-		s.particleBindGroups = append(s.particleBindGroups, particleBindGroup)
+			{
+				Binding: 1,
+				Buffer:  simParamBuffer,
+				Size:    wgpu.WholeSize,
+			},
+		},
+	})
+	if err != nil {
+		return s, err
 	}
+
+	s.particleBindGroups = append(s.particleBindGroups, particleBindGroup)
 
 	s.workGroupCount = uint32(math.Ceil(float64(NumParticles) / float64(ParticlesPerGroup)))
 	s.frameNum = uint64(0)
@@ -323,7 +318,7 @@ func (s *State) Render() error {
 
 	computePass := commandEncoder.BeginComputePass(nil)
 	computePass.SetPipeline(s.computePipeline)
-	computePass.SetBindGroup(0, s.particleBindGroups[s.frameNum%2], nil)
+	computePass.SetBindGroup(0, s.particleBindGroups[0], nil)
 	computePass.DispatchWorkgroups(s.workGroupCount, 1, 1)
 	err = computePass.End()
 	if err != nil {
@@ -341,7 +336,7 @@ func (s *State) Render() error {
 		},
 	})
 	renderPass.SetPipeline(s.renderPipeline)
-	renderPass.SetVertexBuffer(0, s.particleBuffers[(s.frameNum+1)%2], 0, wgpu.WholeSize)
+	renderPass.SetVertexBuffer(0, s.particleBuffers[0], 0, wgpu.WholeSize)
 	renderPass.SetVertexBuffer(1, s.vertexBuffer, 0, wgpu.WholeSize)
 	renderPass.Draw(3, NumParticles, 0, 0)
 	err = renderPass.End()
