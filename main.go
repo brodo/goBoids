@@ -131,11 +131,11 @@ func InitState(window *glfw.Window) (s *State, err error) {
 
 	simParamData := []float32{
 		1.0 / 60.0, // deltaTime - 60 fps
-		0.4,        // maxForce
-		1.0,        // maxSpeed
+		0.2,        // maxForce
+		0.5,        // maxSpeed
 		0.8,        // alignmentWeight
 		0.7,        // cohesionWeight
-		0.8,        // separationWeight
+		0.9,        // separationWeight
 		0.1,        // perceptionRadius
 	}
 
@@ -219,7 +219,7 @@ func InitState(window *glfw.Window) (s *State, err error) {
 		return s, err
 	}
 	// this defines the small triangle for each boid
-	vertexBufferData := [...]float32{-0.001, -0.002, 0.001, -0.002, 0.00, 0.002}
+	vertexBufferData := [...]float32{-0.0025, -0.005, 0.0025, -0.005, 0.00, 0.0025}
 	s.vertexBuffer, err = s.device.CreateBufferInit(&wgpu.BufferInitDescriptor{
 		Label:    "Vertex Buffer",
 		Contents: wgpu.ToBytes(vertexBufferData[:]),
@@ -321,6 +321,7 @@ func (s *State) Render() error {
 	if err != nil {
 		return fmt.Errorf("failed to complete compute pass for texture: %w", err)
 	}
+
 	computePass.Release() // must release immediately
 
 	renderPass := commandEncoder.BeginRenderPass(&wgpu.RenderPassDescriptor{
