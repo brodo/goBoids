@@ -136,7 +136,7 @@ func InitState(window *glfw.Window) (s *State, err error) {
 		0.8,        // alignmentWeight
 		0.7,        // cohesionWeight
 		0.8,        // separationWeight
-		0.3,        // perceptionRadius
+		0.1,        // perceptionRadius
 	}
 
 	simParamBuffer, err := s.device.CreateBufferInit(&wgpu.BufferInitDescriptor{
