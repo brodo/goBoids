@@ -50,18 +50,18 @@ var compute string
 var draw string
 
 type State struct {
-	surface            *wgpu.Surface
-	adapter            *wgpu.Adapter
-	device             *wgpu.Device
-	queue              *wgpu.Queue
-	config             *wgpu.SurfaceConfiguration
-	renderPipeline     *wgpu.RenderPipeline
-	computePipeline    *wgpu.ComputePipeline
-	vertexBuffer       *wgpu.Buffer
-	particleBindGroups []*wgpu.BindGroup
-	particleBuffers    []*wgpu.Buffer
-	frameNum           uint64
-	workGroupCount     uint32
+	surface           *wgpu.Surface
+	adapter           *wgpu.Adapter
+	device            *wgpu.Device
+	queue             *wgpu.Queue
+	config            *wgpu.SurfaceConfiguration
+	renderPipeline    *wgpu.RenderPipeline
+	computePipeline   *wgpu.ComputePipeline
+	vertexBuffer      *wgpu.Buffer
+	particleBindGroup *wgpu.BindGroup
+	particleBuffer    *wgpu.Buffer
+	frameNum          uint64
+	workGroupCount    uint32
 }
 
 func InitState(window *glfw.Window) (s *State, err error) {
@@ -254,7 +254,7 @@ func InitState(window *glfw.Window) (s *State, err error) {
 		return s, err
 	}
 
-	s.particleBuffers = append(s.particleBuffers, particleBuffer)
+	s.particleBuffer = particleBuffer
 
 	computeBindGroupLayout := s.computePipeline.GetBindGroupLayout(0)
 	defer computeBindGroupLayout.Release()
@@ -264,7 +264,7 @@ func InitState(window *glfw.Window) (s *State, err error) {
 		Entries: []wgpu.BindGroupEntry{
 			{
 				Binding: 0,
-				Buffer:  s.particleBuffers[0],
+				Buffer:  s.particleBuffer,
 				Size:    wgpu.WholeSize,
 			},
 			{
@@ -278,7 +278,7 @@ func InitState(window *glfw.Window) (s *State, err error) {
 		return s, err
 	}
 
-	s.particleBindGroups = append(s.particleBindGroups, particleBindGroup)
+	s.particleBindGroup = particleBindGroup
 
 	s.workGroupCount = uint32(math.Ceil(float64(NumParticles) / float64(ParticlesPerGroup)))
 	s.frameNum = uint64(0)
@@ -315,7 +315,7 @@ func (s *State) Render() error {
 
 	computePass := commandEncoder.BeginComputePass(nil)
 	computePass.SetPipeline(s.computePipeline)
-	computePass.SetBindGroup(0, s.particleBindGroups[0], nil)
+	computePass.SetBindGroup(0, s.particleBindGroup, nil)
 	computePass.DispatchWorkgroups(s.workGroupCount, 1, 1)
 	err = computePass.End()
 	if err != nil {
@@ -333,7 +333,7 @@ func (s *State) Render() error {
 		},
 	})
 	renderPass.SetPipeline(s.renderPipeline)
-	renderPass.SetVertexBuffer(0, s.particleBuffers[0], 0, wgpu.WholeSize)
+	renderPass.SetVertexBuffer(0, s.particleBuffer, 0, wgpu.WholeSize)
 	renderPass.SetVertexBuffer(1, s.vertexBuffer, 0, wgpu.WholeSize)
 	renderPass.Draw(3, NumParticles, 0, 0)
 	err = renderPass.End()
@@ -357,17 +357,11 @@ func (s *State) Render() error {
 }
 
 func (s *State) Destroy() {
-	if s.particleBindGroups != nil {
-		for _, bg := range s.particleBindGroups {
-			bg.Release()
-		}
-		s.particleBindGroups = nil
+	if s.particleBindGroup != nil {
+		s.particleBindGroup.Release()
 	}
-	if s.particleBuffers != nil {
-		for _, buffer := range s.particleBuffers {
-			buffer.Release()
-		}
-		s.particleBuffers = nil
+	if s.particleBuffer != nil {
+		s.particleBuffer.Release()
 	}
 	if s.vertexBuffer != nil {
 		s.vertexBuffer.Release()
