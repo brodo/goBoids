@@ -24,8 +24,6 @@ fn limit_vector(v: vec2<f32>, max_length: f32) -> vec2<f32> {
     return v;
 }
 
-
-
 @compute @workgroup_size(256)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let index = global_id.x;
@@ -37,46 +35,34 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     var alignment = vec2<f32>(0.0);
     var cohesion = vec2<f32>(0.0);
     var separation = vec2<f32>(0.0);
-    var total_align = 0;
     var total_cohesion = 0;
-    var total_separation = 0;
     for (var i = 0u; i < arrayLength(&boids); i++) {
         if (i == index) {
             continue;
         }
-
         let other = boids[i];
         let d = distance(current.position, other.position);
-
         if (d < params.perceptionRadius) {
+            total_cohesion++;
             // Alignment
             alignment += other.velocity;
-            total_align++;
 
             // Cohesion
             cohesion += other.position;
-            total_cohesion++;
 
             // Separation
             if (d < params.perceptionRadius * 0.5) {
                 let diff = current.position - other.position;
                 separation += normalize(diff) / d;
-                total_separation++;
             }
         }
     }
 
     // Apply flocking behaviors
-    if (total_align > 0) {
-        alignment = limit_vector(normalize(alignment) * params.maxSpeed - current.velocity, params.maxForce);
-    }
-    if (total_cohesion > 0) {
-        let center = cohesion / f32(total_cohesion);
-        cohesion = limit_vector(normalize(center - current.position) * params.maxSpeed - current.velocity, params.maxForce);
-    }
-    if (total_separation > 0) {
-        separation = limit_vector(normalize(separation) * params.maxSpeed - current.velocity, params.maxForce);
-    }
+    alignment = limit_vector(normalize(alignment) * params.maxSpeed - current.velocity, params.maxForce);
+    let center = cohesion / f32(total_cohesion);
+    cohesion = limit_vector(normalize(center - current.position) * params.maxSpeed - current.velocity, params.maxForce);
+    separation = limit_vector(normalize(separation) * params.maxSpeed - current.velocity, params.maxForce);
 
     // Update boid
     var acceleration = alignment * params.alignmentWeight +
@@ -87,7 +73,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     current.position = current.position + current.velocity * params.deltaTime;
     current.position.x = current.position.x - 2.0 * floor((current.position.x + 1.0) / 2.0);
     current.position.y = current.position.y - 2.0 * floor((current.position.y + 1.0) / 2.0);
-
 
     boids[index] = current;
 }
