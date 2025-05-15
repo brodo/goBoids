@@ -26,7 +26,6 @@ fn main_vs(
     output.position = vec4<f32>(pos + particle_pos, 0.0, 1.0);
     output.color = vec4<f32>(color, 1.0);
     return output;
-
 }
 
 @fragment

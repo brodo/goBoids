@@ -18,11 +18,16 @@ struct SimParams {
 
 fn limit_vector(v: vec2<f32>, max_length: f32) -> vec2<f32> {
     let length_sq = dot(v, v);
-    if (length_sq > max_length * max_length) {
-        return normalize(v) * max_length;
+    // Check if vector is not zero before normalizing
+    if (length_sq > 0.0) {
+        if (length_sq > max_length * max_length) {
+            return normalize(v) * max_length;
+        }
+        return v;
     }
-    return v;
+    return vec2<f32>(0.0); // Return zero vector if input is zero
 }
+
 
 @compute @workgroup_size(256)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -56,10 +61,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     // Apply flocking behaviors
     alignment = limit_vector(normalize(alignment) * params.maxSpeed - current.velocity, params.maxForce);
-    if(total_cohesion > 0){
-        let center = cohesion / f32(total_cohesion);
-        cohesion = limit_vector(normalize(center - current.position) * params.maxSpeed - current.velocity, params.maxForce);
-    }
+
+    let center = cohesion / f32(total_cohesion);
+    cohesion = limit_vector(normalize(center - current.position) * params.maxSpeed - current.velocity, params.maxForce);
+
     separation = limit_vector(normalize(separation) * params.maxSpeed - current.velocity, params.maxForce);
 
     // Update boid
@@ -69,7 +74,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     current.velocity = limit_vector(current.velocity + acceleration, params.maxSpeed);
     current.position = current.position + current.velocity * params.deltaTime;
-    current.position = clamp(current.position - 2 * floor((current.position + 1) /2 ), vec2(-1.0, -1.0),vec2(1.0,1.0));
+    current.position = clamp(current.position - 2 * floor((current.position + 1) /2 ), vec2(-1.0),vec2(1.0));
 
     boids[index] = current;
 }

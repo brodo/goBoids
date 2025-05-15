@@ -38,7 +38,7 @@ func init() {
 
 const (
 	// number of boid particles to simulate
-	NumParticles = 16384
+	NumParticles = 1024
 	// number of single-particle calculations (invocations) in each gpu work group
 	ParticlesPerGroup = 256 // if you update this, also update it in the shader.
 )
@@ -171,12 +171,12 @@ func InitState(window *glfw.Window) (s *State, err error) {
 					},
 				},
 				{
-					ArrayStride: 2 * 4, // 2 f32s
+					ArrayStride: 2 * 4, // 2 f32s -> one vertex. This is filled by `vertexBufferData`
 					StepMode:    wgpu.VertexStepModeVertex,
 					Attributes: []wgpu.VertexAttribute{
 						{
 							Format:         wgpu.VertexFormatFloat32x2,
-							Offset:         0, // this is the last position
+							Offset:         0,
 							ShaderLocation: 2,
 						},
 					},
@@ -219,7 +219,7 @@ func InitState(window *glfw.Window) (s *State, err error) {
 		return s, err
 	}
 	// this defines the small triangle for each boid
-	vertexBufferData := [...]float32{-0.0025, -0.005, 0.0025, -0.005, 0.00, 0.0025}
+	vertexBufferData := [...]float32{-0.0025, -0.005, 0.0025, -0.005, 0.001, 0.0025}
 	s.vertexBuffer, err = s.device.CreateBufferInit(&wgpu.BufferInitDescriptor{
 		Label:    "Vertex Buffer",
 		Contents: wgpu.ToBytes(vertexBufferData[:]),
@@ -400,7 +400,7 @@ func main() {
 	defer glfw.Terminate()
 
 	glfw.WindowHint(glfw.ClientAPI, glfw.NoAPI)
-	window, err := glfw.CreateWindow(1024, 768, "go-webgpu with glfw", nil, nil)
+	window, err := glfw.CreateWindow(1024, 768, "Boids", nil, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -419,9 +419,9 @@ func main() {
 	for !window.ShouldClose() {
 		glfw.PollEvents()
 
-		err := s.Render()
+		err = s.Render()
 		if err != nil {
-			fmt.Println("error occured while rendering:", err)
+			fmt.Println("an error occurred while rendering:", err)
 
 			errstr := err.Error()
 			switch {
