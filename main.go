@@ -131,7 +131,7 @@ func InitState(window *glfw.Window) (s *State, err error) {
 
 	simParamData := []float32{
 		1.0 / 60.0, // deltaTime - 60 fps
-		0.2,        // maxForce
+		0.1,        // maxForce
 		0.5,        // maxSpeed
 		0.8,        // alignmentWeight
 		0.7,        // cohesionWeight
