@@ -38,9 +38,10 @@ func init() {
 
 const (
 	// number of boid particles to simulate
-	NumParticles = 1024
+	NumParticles = 4096
 	// number of single-particle calculations (invocations) in each gpu work group
 	ParticlesPerGroup = 256 // if you update this, also update it in the shader.
+	NumBuffers        = 4   // Number of staging buffers
 )
 
 //go:embed compute.wgsl
@@ -50,18 +51,23 @@ var compute string
 var draw string
 
 type State struct {
-	surface           *wgpu.Surface
-	adapter           *wgpu.Adapter
-	device            *wgpu.Device
-	queue             *wgpu.Queue
-	config            *wgpu.SurfaceConfiguration
-	renderPipeline    *wgpu.RenderPipeline
-	computePipeline   *wgpu.ComputePipeline
-	vertexBuffer      *wgpu.Buffer
-	particleBindGroup *wgpu.BindGroup
-	particleBuffer    *wgpu.Buffer
-	frameNum          uint64
-	workGroupCount    uint32
+	surface             *wgpu.Surface
+	adapter             *wgpu.Adapter
+	device              *wgpu.Device
+	queue               *wgpu.Queue
+	config              *wgpu.SurfaceConfiguration
+	renderPipeline      *wgpu.RenderPipeline
+	computePipeline     *wgpu.ComputePipeline
+	vertexBuffer        *wgpu.Buffer
+	particleBindGroup   *wgpu.BindGroup
+	particleBuffer      *wgpu.Buffer
+	frameNum            uint64
+	workGroupCount      uint32
+	stagingBuffers      [NumBuffers]*wgpu.Buffer  // For reading back data from GPU
+	particleData        [NumParticles * 4]float32 // Store the current particle data
+	readbackBufferIndex uint32                    // Index of buffer currently being read back
+	readbackInProgress  bool                      // Flag to track if a readback is in progress
+
 }
 
 func InitState(window *glfw.Window) (s *State, err error) {
@@ -256,6 +262,19 @@ func InitState(window *glfw.Window) (s *State, err error) {
 
 	s.particleBuffer = particleBuffer
 
+	// Create staging buffers for reading back data from GPU
+	for i := 0; i < NumBuffers; i++ {
+		s.stagingBuffers[i], err = s.device.CreateBuffer(&wgpu.BufferDescriptor{
+			Label:            fmt.Sprintf("Staging Buffer %d", i),
+			Size:             uint64(len(initialParticleData) * 4), // Size in bytes
+			Usage:            wgpu.BufferUsageMapRead | wgpu.BufferUsageCopyDst,
+			MappedAtCreation: false,
+		})
+		if err != nil {
+			return s, err
+		}
+	}
+
 	computeBindGroupLayout := s.computePipeline.GetBindGroupLayout(0)
 	defer computeBindGroupLayout.Release()
 
@@ -324,6 +343,14 @@ func (s *State) Render() error {
 
 	computePass.Release() // must release immediately
 
+	// Copy data from the particle buffer to the staging buffer
+	currentStagingBuffer := s.stagingBuffers[s.readbackBufferIndex]
+	err = commandEncoder.CopyBufferToBuffer(s.particleBuffer, 0, currentStagingBuffer, 0, uint64(len(s.particleData)*4))
+
+	if err != nil {
+		return fmt.Errorf("failed to copy buffer to buffer: %w", err)
+	}
+
 	renderPass := commandEncoder.BeginRenderPass(&wgpu.RenderPassDescriptor{
 		ColorAttachments: []wgpu.RenderPassColorAttachment{
 			{
@@ -351,13 +378,63 @@ func (s *State) Render() error {
 	}
 	defer cmdBuffer.Release()
 
+	// Submit the command buffer and map the staging buffer for reading
 	s.queue.Submit(cmdBuffer)
+	if !s.readbackInProgress {
+		// Map staging buffer for reading
+		s.readbackInProgress = true
+		err = currentStagingBuffer.MapAsync(wgpu.MapModeRead, 0, uint64(len(s.particleData)*4), func(status wgpu.BufferMapAsyncStatus) {
+			defer func() {
+				s.readbackInProgress = false
+			}()
+			if status != wgpu.BufferMapAsyncStatusSuccess {
+				fmt.Println("buffer not mapped")
+				return
+			}
+
+			bufferData := currentStagingBuffer.GetMappedRange(0, uint(len(s.particleData)*4))
+			data := wgpu.FromBytes[float32](bufferData)
+
+			// Copy the data to the particleData slice
+			copy(s.particleData[:], data)
+
+			err := currentStagingBuffer.Unmap()
+			if err != nil {
+				fmt.Println("failed to unmap buffer")
+			}
+
+			// After processing, advance the readbackBufferIndex
+			s.readbackBufferIndex = (s.readbackBufferIndex + 1) % NumBuffers
+		})
+		if err != nil {
+			return fmt.Errorf("failed to map staging buffer: %w", err)
+		}
+	} else {
+		fmt.Println("buffer already mapped")
+	}
+
 	s.surface.Present()
 
 	return nil
 }
 
+// GetParticleData returns a copy of the current particle data
+// This is safe to call from another goroutine (e.g., for network sending)
+func (s *State) GetParticleData() [NumParticles * 4]float32 {
+	// Create a copy to ensure thread safety
+	var dataCopy [NumParticles * 4]float32
+	copy(dataCopy[:], s.particleData[:])
+	return dataCopy
+}
+
 func (s *State) Destroy() {
+	// Release staging buffers
+	for i := 0; i < NumBuffers; i++ {
+		if s.stagingBuffers[i] != nil {
+			s.stagingBuffers[i].Release()
+			s.stagingBuffers[i] = nil
+		}
+	}
 	if s.particleBindGroup != nil {
 		s.particleBindGroup.Release()
 	}
