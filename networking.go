@@ -5,41 +5,48 @@ import (
 	"github.com/hamba/avro/v2"
 	"github.com/nats-io/nats.go"
 	"os"
+	"time"
 )
 
-type Boid struct {
-	PosX float32 `avro:"posX"`
-	PosY float32 `avro:"posY"`
-	VelX float32 `avro:"velX"`
-	VelY float32 `avro:"velY"`
+type Row struct {
+	Time  int64   `avro:"time"`
+	Value float32 `avro:"value"`
 }
 
-type Boids struct {
-	Items []Boid `avro:"items"`
+//go:generate go tool stringer -type=SensorType
+type SensorType int
+
+const (
+	Pos SensorType = iota
+	Vel
+)
+
+//go:generate go tool stringer -type=Axis
+type Axis int
+
+const (
+	X Axis = iota
+	Y
+	Z
+)
+
+func subject(id int, sType SensorType, axis Axis) string {
+	return fmt.Sprintf("sensors.swarm.%d.%s.%s", id, sType, axis)
+}
+
+type SubjectRow struct {
+	subject string
+	row     []byte
 }
 
 const schemaStr = `{
     "type": "record",
-    "name": "Boids",
-    "namespace": "org.hamba.avro",
+    "name": "SensorRecord",
+	"namespace": "org.hamba.avro",
     "fields": [
-        {
-            "name": "items",
-            "type": {
-                "type": "array",
-                "items": {
-                    "type": "record",
-                    "name": "Boid",
-                    "fields": [
-                        {"name": "posX", "type": "float"},
-                        {"name": "posY", "type": "float"},
-                        {"name": "velX", "type": "float"},
-                        {"name": "velY", "type": "float"}
-                    ]
-                }
-            }
-        }
-    ]
+		{"name": "time", "type": "long", "logicalType": "timestamp-micros" },
+        {"name": "value", "type": "float"}
+	]
 }`
 
 func Connect(particles chan []float32) {
@@ -55,32 +62,65 @@ func Connect(particles chan []float32) {
 
 	nc, _ := nats.Connect(url)
 	defer nc.Drain()
+	row := Row{Time: time.Now().UnixMicro()}
+	subjectRows := make([]SubjectRow, NumParticles*4)
 	for data := range particles {
-		boids := make([]Boid, NumParticles)
-		for i := 0; i < NumParticles; i++ {
-			pos := i * 4
-			boids[i] = Boid{
-				PosX: data[pos],
-				PosY: data[pos+1],
-				VelX: data[pos+2],
-				VelY: data[pos+3],
-			}
-		}
-		boidsWrapper := Boids{
-			Items: boids,
-		}
-
-		avroData, err := avro.Marshal(schema, boidsWrapper)
-		if err != nil {
-			fmt.Println("Error marshaling data:", err)
+		if data == nil || len(data) < 4 {
 			continue
 		}
+		for i := 0; i < NumParticles; i++ {
+			pos := i * 4
+			var avroData []byte
+			row.Value = data[pos]
+			avroData, err = avro.Marshal(schema, row)
+			if err != nil {
+				fmt.Println("Error marshaling data:", err)
+				return
+			}
+			subjectRows[pos] = SubjectRow{
+				subject: subject(i, Pos, X),
+				row:     avroData,
+			}
 
-		// Publish the Avro-encoded data
-		err = nc.Publish("boids", avroData)
-		if err != nil {
-			fmt.Println("Error publishing data:", err)
+			row.Value = data[pos+1]
+			avroData, err = avro.Marshal(schema, row)
+			if err != nil {
+				fmt.Println("Error marshaling data:", err)
+				return
+			}
+			subjectRows[pos+1] = SubjectRow{
+				subject: subject(i, Pos, Y),
+				row:     avroData,
+			}
+			row.Value = data[pos+2]
+			avroData, err = avro.Marshal(schema, row)
+			if err != nil {
+				fmt.Println("Error marshaling data:", err)
+				return
+			}
+			subjectRows[pos+2] = SubjectRow{
+				subject: subject(i, Vel, X),
+				row:     avroData,
+			}
+			row.Value = data[pos+3]
+			avroData, err = avro.Marshal(schema, row)
+			if err != nil {
+				fmt.Println("Error marshaling data:", err)
+				return
+			}
+			subjectRows[pos+3] = SubjectRow{
+				subject: subject(i, Vel, Y),
+				row:     avroData,
+			}
 		}
+		go func() {
+			for _, sr := range subjectRows {
+				err = nc.Publish(sr.subject, sr.row)
+				if err != nil {
+					fmt.Println("Error publishing data:", err)
+				}
+			}
+		}()
 
 	}
 

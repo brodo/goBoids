@@ -2,15 +2,15 @@ package main
 
 import (
 	"fmt"
+	"github.com/cogentcore/webgpu/wgpu"
+	"github.com/cogentcore/webgpu/wgpuglfw"
+	"github.com/go-gl/glfw/v3.3/glfw"
 	"math"
 	"math/rand"
 	"os"
 	"runtime"
 	"strings"
-
-	"github.com/cogentcore/webgpu/wgpu"
-	"github.com/cogentcore/webgpu/wgpuglfw"
-	"github.com/go-gl/glfw/v3.3/glfw"
+	"time"
 
 	_ "embed"
 )
@@ -41,7 +41,10 @@ const (
 	NumParticles = 4096
 	// number of single-particle calculations (invocations) in each gpu work group
 	ParticlesPerGroup = 256 // if you update this, also update it in the shader.
-	NumBuffers        = 120 // Number of staging buffers
+	NumBuffers        = 60  // Number of staging buffers
+	FPS               = 60
+	DeltaTimeSeconds  = 1.0 / FPS
+	DeltaTimeMS       = DeltaTimeSeconds * 1000
 )
 
 //go:embed compute.wgsl
@@ -64,9 +67,8 @@ type State struct {
 	frameNum          uint64
 	workGroupCount    uint32
 	stagingBuffers    [NumBuffers]*wgpu.Buffer // For reading back data from GPU
-	bufferMappedState [NumBuffers]bool         // Track which buffers are currently mapped
-	nextReadbackIndex uint32                   // Next buffer to use for readback
-	particleData      chan []float32           // Store the current particle data
+	bufMapCallbacks   []wgpu.BufferMapCallback
+	particleData      chan []float32
 }
 
 func InitState(window *glfw.Window) (s *State, err error) {
@@ -137,13 +139,13 @@ func InitState(window *glfw.Window) (s *State, err error) {
 	defer drawShader.Release()
 
 	simParamData := []float32{
-		1.0 / 60.0, // deltaTime - 60 fps
-		0.1,        // maxForce
-		0.5,        // maxSpeed
-		0.8,        // alignmentWeight
-		0.7,        // cohesionWeight
-		0.9,        // separationWeight
-		0.1,        // perceptionRadius
+		DeltaTimeSeconds, // deltaTime
+		0.1,              // maxForce
+		0.5,              // maxSpeed
+		0.8,              // alignmentWeight
+		0.7,              // cohesionWeight
+		0.9,              // separationWeight
+		0.1,              // perceptionRadius
 	}
 
 	simParamBuffer, err := s.device.CreateBufferInit(&wgpu.BufferInitDescriptor{
@@ -265,7 +267,6 @@ func InitState(window *glfw.Window) (s *State, err error) {
 
 	// Initialize staging buffers
 	s.stagingBuffers = [NumBuffers]*wgpu.Buffer{}
-	s.bufferMappedState = [NumBuffers]bool{} // All false by default
 
 	for i := 0; i < NumBuffers; i++ {
 		s.stagingBuffers[i], err = s.device.CreateBuffer(&wgpu.BufferDescriptor{
@@ -278,8 +279,6 @@ func InitState(window *glfw.Window) (s *State, err error) {
 			return nil, err
 		}
 	}
-
-	s.nextReadbackIndex = 0
 
 	computeBindGroupLayout := s.computePipeline.GetBindGroupLayout(0)
 	defer computeBindGroupLayout.Release()
@@ -307,6 +306,9 @@ func InitState(window *glfw.Window) (s *State, err error) {
 
 	s.workGroupCount = uint32(math.Ceil(float64(NumParticles) / float64(ParticlesPerGroup)))
 	s.frameNum = uint64(0)
+	for i := 0; i < NumBuffers; i++ {
+		s.bufMapCallbacks = append(s.bufMapCallbacks, createBufferMapCallback(s.stagingBuffers[i], s.particleData))
+	}
 
 	return s, nil
 }
@@ -349,35 +351,6 @@ func (s *State) Render() error {
 
 	computePass.Release() // must release immediately
 
-	// Find a buffer that isn't currently mapped for this frame's readback
-	var readbackBufferIndex uint32 = s.nextReadbackIndex
-	for i := 0; i < NumBuffers; i++ {
-		candidateIndex := (s.nextReadbackIndex + uint32(i)) % NumBuffers
-		if !s.bufferMappedState[candidateIndex] {
-			readbackBufferIndex = candidateIndex
-			break
-		}
-	}
-
-	// Only proceed with readback if we found an available buffer
-	if !s.bufferMappedState[readbackBufferIndex] {
-		// Now we can safely copy to this buffer
-		err = commandEncoder.CopyBufferToBuffer(
-			s.particleBuffer, // Source buffer (your particle buffer)
-			0,
-			s.stagingBuffers[readbackBufferIndex], // Destination buffer (one that's not mapped)
-			0,
-			uint64(4*NumParticles*4),
-		)
-
-		if err != nil {
-			return fmt.Errorf("failed to copy buffer to buffer: %w", err)
-		}
-
-		// Update next readback index for next frame
-		s.nextReadbackIndex = (readbackBufferIndex + 1) % NumBuffers
-	}
-
 	renderPass := commandEncoder.BeginRenderPass(&wgpu.RenderPassDescriptor{
 		ColorAttachments: []wgpu.RenderPassColorAttachment{
 			{
@@ -397,8 +370,6 @@ func (s *State) Render() error {
 	}
 	renderPass.Release() // must release
 
-	s.frameNum += 1
-
 	cmdBuffer, err := commandEncoder.Finish(nil)
 	if err != nil {
 		return fmt.Errorf("failed to finish command buffer: %w", err)
@@ -409,42 +380,43 @@ func (s *State) Render() error {
 	s.queue.Submit(cmdBuffer)
 	s.surface.Present()
 
-	// After submitting commands, we can start the readback on the buffer we copied to
-	// But only if we actually did a copy this frame
-	if !s.bufferMappedState[readbackBufferIndex] {
-		// Mark the buffer as mapped before starting the async operation
-		s.bufferMappedState[readbackBufferIndex] = true
-
-		// Start the readback
-		err = s.stagingBuffers[readbackBufferIndex].MapAsync(wgpu.MapModeRead, 0, uint64(4*NumParticles*4),
-			func(status wgpu.BufferMapAsyncStatus) {
-				if status == wgpu.BufferMapAsyncStatusSuccess {
-					// Read the data
-					data := s.stagingBuffers[readbackBufferIndex].GetMappedRange(0, uint(4*NumParticles*4))
-					floatData := wgpu.FromBytes[float32](data)
-
-					// Copy to our CPU-side array
-					s.particleData <- floatData
-
-					// Now you have the data in s.particleData, which you can send over network
-
-					// IMPORTANT: Unmap the buffer when done
-					err = s.stagingBuffers[readbackBufferIndex].Unmap()
-					if err != nil {
-						fmt.Printf("failed to unmap staging buffer: %v\n", err)
-					}
-				}
-
-				// Mark buffer as no longer mapped
-				s.bufferMappedState[readbackBufferIndex] = false
-			})
-
-		if err != nil {
-			fmt.Println("Error starting buffer readback:", err)
-		}
+	err = s.stagingBuffers[s.frameNum%NumBuffers].
+		MapAsync(wgpu.MapModeRead, 0, uint64(4*NumParticles*4), s.bufMapCallbacks[s.frameNum%NumBuffers])
+	if err != nil {
+		fmt.Println("Error starting buffer readback:", err)
 	}
 
+	s.frameNum += 1
+
 	return nil
+}
+
+func createBufferMapCallback(wgpuBuffer *wgpu.Buffer, channel chan []float32) wgpu.BufferMapCallback {
+	bufSize := 4 * NumParticles * 4
+	deltaTimeMs := DeltaTimeMS
+	return func(status wgpu.BufferMapAsyncStatus) {
+		if status == wgpu.BufferMapAsyncStatusSuccess {
+			// Read the data
+			buf := make([]byte, bufSize)
+			copy(buf, wgpuBuffer.GetMappedRange(0, uint(bufSize)))
+			data := wgpu.FromBytes[float32](buf)
+			err := wgpuBuffer.Unmap()
+			time.Sleep(time.Duration(deltaTimeMs) * time.Millisecond)
+			if err != nil {
+				panic(fmt.Errorf("failed to unmap staging buffer: %v\n", err))
+			}
+			select {
+			case channel <- data:
+				// Data sent successfully
+			default:
+				// Channel is full, drop this frame's data
+				fmt.Println("Dropping particle data - channel full")
+			}
+
+		} else {
+			panic(fmt.Errorf("failed to map staging buffer: %v", status))
+		}
+	}
 }
 
 func (s *State) Destroy() {
