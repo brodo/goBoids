@@ -18,14 +18,13 @@ struct SimParams {
 
 fn limit_vector(v: vec2<f32>, max_length: f32) -> vec2<f32> {
     let length_sq = dot(v, v);
-    // Check if vector is not zero before normalizing
     if (length_sq > 0.0) {
         if (length_sq > max_length * max_length) {
             return normalize(v) * max_length;
         }
         return v;
     }
-    return vec2<f32>(0.0); // Return zero vector if input is zero
+    return vec2<f32>(0.0);
 }
 
 
@@ -45,12 +44,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         let d = distance(current.position, other.position);
         if (d < params.perceptionRadius) {
             total_cohesion++;
-            // Alignment
             alignment += other.velocity;
-
-            // Cohesion
             cohesion += other.position;
-
             // Separation
             if (d < params.perceptionRadius * 0.5) {
                 let diff = current.position - other.position;

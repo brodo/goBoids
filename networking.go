@@ -1,8 +1,11 @@
 package main
 
 import (
-	"fmt"
-	"github.com/hamba/avro/v2"
+	"bytes"
+	"github.com/apache/arrow/go/arrow"
+	"github.com/apache/arrow/go/arrow/array"
+	"github.com/apache/arrow/go/arrow/ipc"
+	"github.com/apache/arrow/go/arrow/memory"
 	"github.com/nats-io/nats.go"
 	"os"
 	"time"
@@ -30,30 +33,55 @@ const (
 	Z
 )
 
-func subject(id int, sType SensorType, axis Axis) string {
-	return fmt.Sprintf("sensors.swarm.%d.%s.%s", id, sType, axis)
-}
-
 type SubjectRow struct {
 	subject string
 	row     []byte
 }
 
-const schemaStr = `{
-    "type": "record",
-    "name": "SensorRecord",
-	"namespace": "org.hamba.avro",
-    "fields": [
-		{"name": "time", "type": "long", "logicalType": "timestamp-micros" },
-        {"name": "value", "type": "float"}
-	]
-}`
+func buildArrow(particles []float32) []byte {
+	pool := memory.NewGoAllocator()
+	schema := arrow.NewSchema(
+		[]arrow.Field{
+			{Name: "time", Type: arrow.PrimitiveTypes.Int64},
+			{Name: "posX", Type: arrow.PrimitiveTypes.Float32},
+			{Name: "posY", Type: arrow.PrimitiveTypes.Float32},
+			{Name: "velX", Type: arrow.PrimitiveTypes.Float32},
+			{Name: "velY", Type: arrow.PrimitiveTypes.Float32},
+		},
+		nil,
+	)
+	b := array.NewRecordBuilder(pool, schema)
+	defer b.Release()
 
-func Connect(particles chan []float32) {
-	schema, err := avro.Parse(schemaStr)
+	now := time.Now().UnixMicro()
+	for i := 0; i < NumParticles; i++ {
+		pos := i * 4
+		b.Field(0).(*array.Int64Builder).Append(now)
+		b.Field(1).(*array.Float32Builder).Append(particles[pos])
+		b.Field(2).(*array.Float32Builder).Append(particles[pos+1])
+		b.Field(3).(*array.Float32Builder).Append(particles[pos+2])
+		b.Field(4).(*array.Float32Builder).Append(particles[pos+3])
+	}
+	rec := b.NewRecord()
+	defer rec.Release()
+
+	buf := bytes.NewBuffer(nil)
+	wr := ipc.NewWriter(buf, ipc.WithSchema(schema))
+	err := wr.Write(rec)
 	if err != nil {
 		panic(err)
 	}
+	err = wr.Close()
+	if err != nil {
+		panic(err)
+	}
+	if len(buf.Bytes()) == 0 {
+		panic("buffer is empty")
+	}
+	return buf.Bytes()
+}
+
+func Connect(particles chan []float32) {
 
 	url := os.Getenv("NATS_URL")
 	if url == "" {
@@ -62,66 +90,14 @@ func Connect(particles chan []float32) {
 
 	nc, _ := nats.Connect(url)
 	defer nc.Drain()
-	row := Row{Time: time.Now().UnixMicro()}
-	subjectRows := make([]SubjectRow, NumParticles*4)
 	for data := range particles {
 		if data == nil || len(data) < 4 {
 			continue
 		}
-		for i := 0; i < NumParticles; i++ {
-			pos := i * 4
-			var avroData []byte
-			row.Value = data[pos]
-			avroData, err = avro.Marshal(schema, row)
-			if err != nil {
-				fmt.Println("Error marshaling data:", err)
-				return
-			}
-			subjectRows[pos] = SubjectRow{
-				subject: subject(i, Pos, X),
-				row:     avroData,
-			}
-
-			row.Value = data[pos+1]
-			avroData, err = avro.Marshal(schema, row)
-			if err != nil {
-				fmt.Println("Error marshaling data:", err)
-				return
-			}
-			subjectRows[pos+1] = SubjectRow{
-				subject: subject(i, Pos, Y),
-				row:     avroData,
-			}
-			row.Value = data[pos+2]
-			avroData, err = avro.Marshal(schema, row)
-			if err != nil {
-				fmt.Println("Error marshaling data:", err)
-				return
-			}
-			subjectRows[pos+2] = SubjectRow{
-				subject: subject(i, Vel, X),
-				row:     avroData,
-			}
-			row.Value = data[pos+3]
-			avroData, err = avro.Marshal(schema, row)
-			if err != nil {
-				fmt.Println("Error marshaling data:", err)
-				return
-			}
-			subjectRows[pos+3] = SubjectRow{
-				subject: subject(i, Vel, Y),
-				row:     avroData,
-			}
+		msg := buildArrow(data)
+		err := nc.Publish("sensors.flock", msg)
+		if err != nil {
+			panic(err)
 		}
-		go func() {
-			for _, sr := range subjectRows {
-				err = nc.Publish(sr.subject, sr.row)
-				if err != nil {
-					fmt.Println("Error publishing data:", err)
-				}
-			}
-		}()
-
 	}
-
 }
