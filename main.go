@@ -5,10 +5,8 @@ import (
 	"github.com/cogentcore/webgpu/wgpu"
 	"github.com/cogentcore/webgpu/wgpuglfw"
 	"github.com/go-gl/glfw/v3.3/glfw"
-	"log"
 	"math"
 	"math/rand"
-	"net/http"
 	"os"
 	"runtime"
 	"strings"
@@ -506,7 +504,6 @@ func main() {
 		panic(err)
 	}
 	defer s.Destroy()
-	go httpServ(s.particleData)
 
 	window.SetSizeCallback(func(w *glfw.Window, width, height int) {
 		s.Resize(width, height)
@@ -528,28 +525,5 @@ func main() {
 				panic(err)
 			}
 		}
-	}
-}
-
-func httpServ(particles chan []float32) {
-	var particleData []float32
-
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		text := "Number of particles: " + fmt.Sprintf("%v", particleData)
-		_, err := w.Write([]byte(text))
-		if err != nil {
-			panic(err)
-		}
-	})
-	go func() {
-		for data := range particles {
-			particleData = data
-		}
-	}()
-
-	err := http.ListenAndServe(":3000", nil)
-	if err != nil {
-		log.Fatal(err)
 	}
 }
