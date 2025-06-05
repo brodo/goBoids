@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"github.com/cogentcore/webgpu/wgpu"
 	"github.com/cogentcore/webgpu/wgpuglfw"
@@ -10,8 +11,6 @@ import (
 	"os"
 	"runtime"
 	"strings"
-
-	_ "embed"
 )
 
 var forceFallbackAdapter = os.Getenv("WGPU_FORCE_FALLBACK_ADAPTER") == "1"
@@ -346,9 +345,9 @@ func (s *State) Render() error {
 		return fmt.Errorf("failed to complete compute pass for texture: %w", err)
 	}
 
-	computePass.Release() // must release immediately
+	computePass.Release()
 
-	// Find a buffer that isn't currently mapped for this frame's readback
+	// Find a currently unmapped buffer for this frame's readback
 	var readbackBufferIndex uint32 = s.nextReadbackIndex
 	for i := 0; i < NumBuffers; i++ {
 		candidateIndex := (s.nextReadbackIndex + uint32(i)) % NumBuffers
@@ -511,7 +510,6 @@ func main() {
 
 	for !window.ShouldClose() {
 		glfw.PollEvents()
-
 		err = s.Render()
 		if err != nil {
 			fmt.Println("an error occurred while rendering:", err)

@@ -27,3 +27,5 @@ require (
 )
 
 tool golang.org/x/tools/cmd/stringer
+
+replace github.com/cogentcore/webgpu => ../webgpu
