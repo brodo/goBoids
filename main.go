@@ -11,6 +11,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"time"
 )
 
 var forceFallbackAdapter = os.Getenv("WGPU_FORCE_FALLBACK_ADAPTER") == "1"
@@ -423,7 +424,7 @@ func (s *State) Render() error {
 					select {
 					case s.particleData <- floatData:
 					default:
-						fmt.Println("failed to send float data to buffer")
+						fmt.Println("failed to send particle data to buffer")
 
 					}
 					if err != nil {
@@ -508,20 +509,42 @@ func main() {
 		s.Resize(width, height)
 	})
 
-	for !window.ShouldClose() {
-		glfw.PollEvents()
-		err = s.Render()
-		if err != nil {
-			fmt.Println("an error occurred while rendering:", err)
+	go Connect(s.particleData)
 
-			errstr := err.Error()
-			switch {
-			case strings.Contains(errstr, "Surface timed out"): // do nothing
-			case strings.Contains(errstr, "Surface is outdated"): // do nothing
-			case strings.Contains(errstr, "Surface was lost"): // do nothing
-			default:
-				panic(err)
+	const targetFPS = 60
+	const frameTime = time.Second / targetFPS
+
+	nextFrame := time.Now()
+
+	for !window.ShouldClose() {
+		now := time.Now()
+		// Only render if it's time for the next frame
+		if now.After(nextFrame) || now.Equal(nextFrame) {
+
+			glfw.PollEvents()
+			err = s.Render()
+			if err != nil {
+				fmt.Println("an error occurred while rendering:", err)
+
+				errstr := err.Error()
+				switch {
+				case strings.Contains(errstr, "Surface timed out"): // do nothing
+				case strings.Contains(errstr, "Surface is outdated"): // do nothing
+				case strings.Contains(errstr, "Surface was lost"): // do nothing
+				default:
+					panic(err)
+				}
 			}
+			// Schedule next frame
+			nextFrame = nextFrame.Add(frameTime)
+
+			// Prevent falling too far behind
+			if nextFrame.Before(now) {
+				nextFrame = now.Add(frameTime)
+			}
+
+		} else {
+			time.Sleep(time.Millisecond)
 		}
 	}
 }
